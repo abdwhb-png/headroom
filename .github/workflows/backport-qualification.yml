@@ -42,7 +42,7 @@ jobs:
         run: .venv/bin/python -m pytest tests/test_content_router_shell_small_results.py::test_small_bash_tool_result_stays_verbatim -q
       - name: Protected batch regression
         if: success() || failure()
-        run: .venv/bin/python -m pytest tests/test_compression_batches.py::test_build_compression_batches_skips_protected_units -q
+        run: .venv/bin/python -m pytest tests/test_compression_batches.py::test_batch_refuses_protected_units_without_routing -q
       - name: Relevant upstream suites
         if: success()
         run: |
