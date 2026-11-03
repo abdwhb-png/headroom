@@ -1,0 +1,49 @@
+name: Distribution backport regressions
+on:
+  push:
+    branches: [release/v0.42.0-backports]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13'
+      - name: Restore locked dependencies through Socket Firewall
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL https://github.com/SocketDev/sfw-free/releases/download/v1.16.0/sfw-free-linux-x86_64 -o "$RUNNER_TEMP/bin/sfw"
+          echo "1f24d2628aeb3995f1f2651509e37641c7c41d07749ac68594ecb5bb2dd44d8a  $RUNNER_TEMP/bin/sfw" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/bin/sfw"
+          docker create --name uv-tools astral/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1
+          docker cp uv-tools:/uv "$RUNNER_TEMP/bin/uv"
+          docker rm uv-tools
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          sfw --version
+          sfw uv sync --locked --extra proxy --extra dev --no-install-project --python 3.13
+          sfw uv pip install --python .venv/bin/python --no-deps 'headroom-ai==0.42.0'
+          python - <<'PY'
+          import pathlib, shutil
+          installed = next(pathlib.Path('.venv/lib').glob('python*/site-packages/headroom/_core*.so'))
+          shutil.copy2(installed, pathlib.Path('headroom') / installed.name)
+          PY
+      - name: Oversized token-cache regression
+        run: .venv/bin/python -m pytest tests/test_token_count_cache.py::test_oversized_text_is_not_cached -q
+      - name: Small shell-result regression
+        if: success() || failure()
+        run: .venv/bin/python -m pytest tests/test_content_router_shell_small_results.py::test_small_bash_tool_result_stays_verbatim -q
+      - name: Protected batch regression
+        if: success() || failure()
+        run: .venv/bin/python -m pytest tests/test_compression_batches.py::test_build_compression_batches_skips_protected_units -q
+      - name: Relevant upstream suites
+        if: success()
+        run: |
+          .venv/bin/python -m pytest tests/test_token_count_cache.py tests/test_content_router_shell_small_results.py tests/test_websearch_tool_result_protection.py tests/test_compression_batches.py tests/test_proxy_compress_endpoint.py tests/test_content_router_ml_stage_deadline.py tests/test_kompress_line_integrity.py -q
